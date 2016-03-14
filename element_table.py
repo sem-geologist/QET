@@ -1,6 +1,6 @@
 #
 # This library contains the interactive periodic table widget class
-# useful in material analytysis software development.
+# useful in material analysis software development.
 # Copyright (C) 2016  Petras Jokubauskas
 #
 # This program is free software: you can redistribute it and/or modify
