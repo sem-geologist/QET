@@ -1,6 +1,7 @@
 # QPET
-The Periodic Element Table widget for SEM-EDS (or other analytical techniques) based on PyQt4
+The Periodic Element Table widget for SEM-EDS (or other analytical techniques).
+Based on PyQt5.
 
 depends:
-* python 3.x (python 2.8 should work too)
-* PyQt4 (tested on 4.8)
+* python 3.x
+* PyQt5 (tested on 5.6; 5.7)
