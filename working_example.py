@@ -2,8 +2,7 @@ import sys
 from PyQt5.QtWidgets import QApplication, QWidget
  
 import element_table_Qt5
- 
- 
+
 
 #some dummy printing functions to demonstrate the signals emitted:
 def toggled_on(thingy):
@@ -27,15 +26,13 @@ def cleared_everything():
 if __name__ == '__main__':
     
     app = QApplication(sys.argv)
-    w = QWidget()
-    pet = element_table_Qt5.ElementTableGUI(parent=w, preenabled=['La','Si','Al'])
+    pet = element_table_Qt5.ElementTableGUI(preenabled=['La','Si','Al'])
     pet.disableElement.connect(toggled_off)
     pet.enableElement.connect(toggled_on)
     pet.elementHoveredOver.connect(hovered_over)
     pet.elementHoveredOff.connect(hovered_off)
     pet.someButtonRightClicked.connect(button_right_clicked)
     pet.allElementsCleared.connect(cleared_everything)
-    
-    w.show()
+    pet.show()
     
     sys.exit(app.exec_())
