@@ -107,7 +107,6 @@ class HoverableButton(Qt.QPushButton):
         self.setCheckable(True)
         self.hoverState = False
         self.orig_size = self.geometry()
-        self.pal = self.palette()
 
     def enterEvent(self, event):
         if self.isEnabled():
