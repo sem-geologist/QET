@@ -12,10 +12,10 @@ def toggled_off(thingy):
     print('toggled off ' + thingy)
 
 def hovered_over(thingy):
-    print('hovered over ' + thingy)
+    print('element {} considered'.format(thingy))
     
 def hovered_off(thingy):
-    print('hovered off ' + thingy)
+    print('element {} unconsidered'.format(thingy))
 
 def button_right_clicked(thingy):
     print('right clicked ' + thingy)   
