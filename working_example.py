@@ -26,7 +26,7 @@ def cleared_everything():
 if __name__ == '__main__':
     
     app = QApplication(sys.argv)
-    pet = element_table_Qt5.ElementTableGUI(preenabled=['La','Si','Al'],
+    pet = element_table.ElementTableGUI(preenabled=['La','Si','Al'],
                                             disabled=['H','He'])
     pet.elementUnchecked.connect(toggled_off)
     pet.elementChecked.connect(toggled_on)
