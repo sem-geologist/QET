@@ -20,7 +20,7 @@
 from PyQt5 import QtCore, Qt
 import re
 
-#the periodic table possitions in gui:
+# the periodic table possitions in gui:
 # row, column:
 pt_indexes = {'H': (0, 0), 'He': (0, 17), 'Li': (1, 0),
               'Be': (1, 1), 'B': (1, 12), 'C': (1, 13),
@@ -55,11 +55,8 @@ pt_indexes = {'H': (0, 0), 'He': (0, 17), 'Li': (1, 0),
               'Pa': (8, 5), 'U': (8, 6), 'Np': (8, 7),
               'Pu': (8, 8)}
 
-#disabled elements (this is most actual in electron microscopy:
-disabled_elements = ['H', 'He', 'Ne', 'Ar', 'Xe', 'Kr', 'Rn', 'Li']
-
-#element groups:
-#TODO: this could go to json and configs
+# element groups:
+# TODO: this could go to json and configs
 geo_groups = {'LITHOPHILE': ['Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca'],
               'SIDEROPHILE': ['Fe', 'Co', 'Ni', 'Pt', 'Re', 'Os'],
               'CHALCOPHILE': ['Cu', 'Ag', 'Zn', 'Pb', 'S'],
@@ -73,9 +70,9 @@ geo_groups = {'LITHOPHILE': ['Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca'],
                       'Tm', 'Yb', 'Lu'],
               'LREE': ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm'],
               'HREE': ['Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er',
-                      'Tm', 'Yb', 'Lu'],
+                       'Tm', 'Yb', 'Lu'],
               'COMMON': ['O', 'Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca',
-                            'Cr', 'Mn', 'Fe'],
+                         'Cr', 'Mn', 'Fe'],
               'ALL': ['He', 'Se', 'Sb', 'Pt', 'Ar', 'Ba', 'As', 'Pa',
                       'Au', 'Dy', 'Bi', 'U', 'Ne', 'Re', 'Al', 'Sc',
                       'Mn', 'Ra', 'In', 'O', 'P', 'Mo', 'Tb', 'V',
@@ -97,23 +94,60 @@ element_regex = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
 geo_regex = '(?:%s)' % '|'.join(geo_groups.keys())
 
 
+def separate_text(ptext):
+    "Sparate text into positive and negative (with '-' sign)"
+    if '-' in ptext:
+        first_level = re.findall(r"[-]|[A-Z a-z,;]*", ptext)
+        if first_level.index('-') == 0:
+            positive_text = ''
+            negative_text = first_level[1]
+        else:
+            positive_text = first_level[0]
+            negative_text = first_level[first_level.index('-') + 1]
+    else:
+        positive_text = ptext
+        negative_text = ''
+    return positive_text, negative_text
+
+
+def parse_elements(text):
+        parsed = []
+        geo_list = re.findall(geo_regex, text)
+        for i in geo_list:
+            parsed.extend(geo_groups[i])
+            text = text.replace(i, '')
+        parsed.extend(re.findall(element_regex, text))
+        return set(parsed)
+
+
 class HoverableButton(Qt.QPushButton):
     hoverChanged = QtCore.pyqtSignal()
+    gainedFocus = QtCore.pyqtSignal()
+    lostFocus = QtCore.pyqtSignal()
 
-    def __init__(self, name):
+    def __init__(self, name, partly_disabled=True):
         Qt.QAbstractButton.__init__(self)
+        self.partly_disabled = partly_disabled
         self.setMouseTracking(1)
         self.setText(name)
         self.setCheckable(True)
         self.hoverState = False
         self.orig_size = self.geometry()
 
+    def focusInEvent(self, event):
+        self.gainedFocus.emit()
+        super().focusInEvent(event)
+
+    def focusOutEvent(self, event):
+        self.lostFocus.emit()
+        super().focusOutEvent(event)
+
     def enterEvent(self, event):
-        if self.isEnabled():
+        if self.isEnabled() or self.partly_disabled:
             self.hoverState = True
             self.hoverChanged.emit()
             self.orig_size = self.geometry()
-            #some fancy graphic effects (inspired by KDE kalzium):
+            # some fancy graphic effects (inspired by KDE kalzium):
             self.setGeometry(self.orig_size.x() - self.orig_size.width() / 5,
                              self.orig_size.y() - self.orig_size.height() / 5,
                              self.orig_size.width() * 1.4,
@@ -121,240 +155,237 @@ class HoverableButton(Qt.QPushButton):
             self.raise_()
 
     def leaveEvent(self, event):
-        if self.isEnabled():
+        if self.isEnabled() or self.partly_disabled:
             self.hoverState = False
             self.hoverChanged.emit()
             self.setGeometry(self.orig_size)
 
 
-class ElementTableGUI(Qt.QTableWidget):
+class ElementTableGUI(Qt.QWidget):
     """Create the periodic element gui with toggleble buttons
     for element selection and preview signal triggered with
     mouse hover events and right click for optional menu/ window.
-    
+
     Initialisation can take python list with elements
     for which buttons is pre-toggled:
     -----------
     args:
-    preenabled -- python list with elements (abbrevations)
+    preenabled -- python list with elements (abbrevations), the
+    buttons which should be initially pushed.
+    disabled = python list with elements (abbrevations) for buttons
+    which should be disabled.
     -----------
-    
+
     additionally to native QtGui.QTableWidget provides
     such signals:
-    
-    elementHoveredOver -- emits element abbrevation when
-        mouse hovers over the button.
-    elementHoveredOff -- emits element abrevation at mouse
+
+    elementConsidered -- signal which emits element abbrevation
+        when mouse hovers over the button, or the coresponding
+        button gets focus, or is emitted by text input interface.
+    elementUnconsidered -- emits element abrevation at moment mouse
         leaves the button area
-    enableElement -- emits the element abbrevation when button
+    elementChecked -- emits the element abbrevation when button
         changes to checked possition.
-    disableElement -- emits the element abbrevation when button
+    elementUnchecked -- emits the element abbrevation when button
         changes to unchecked possition.
-        
-    someButtonRightClicked -- emits the element abbrevation when
+
+    elementRightClicked -- emits the element abbrevation when
         button gets right clicked.
-        
+
     allElementsCleared -- emits, when the clear all button clicked.
         Alternatively the element by element could be dissabled,
         however this signal can be much faster.
     """
-    
+
     # preview slots:
-    elementHoveredOver = QtCore.pyqtSignal(str)
-    elementHoveredOff = QtCore.pyqtSignal(str)
+    elementConsidered = QtCore.pyqtSignal(str)
+    elementUnconsidered = QtCore.pyqtSignal(str)
     # button press slots:
-    enableElement = QtCore.pyqtSignal(str)
-    disableElement = QtCore.pyqtSignal(str)
+    elementChecked = QtCore.pyqtSignal(str)
+    elementUnchecked = QtCore.pyqtSignal(str)
     # right_mouse_button_press_slot:
-    someButtonRightClicked = QtCore.pyqtSignal(str)
+    elementRightClicked = QtCore.pyqtSignal(str)
     allElementsCleared = QtCore.pyqtSignal()
 
-    def __init__(self, parent=None, preenabled=[]):
+    def __init__(self, parent=None,
+                 preenabled=[], disabled=[]):
         super().__init__()
-        #Qt.QTableWidget.__init__(self, parent)
-        self.preview_enabled = True 
         self.setWindowTitle('Element Table')
-        self.setColumnCount(18)
-        self.setRowCount(9)
-        self.horizontalHeader().setSectionResizeMode(Qt.QHeaderView.Stretch)
-        self.verticalHeader().setSectionResizeMode(Qt.QHeaderView.Stretch)
-        self.verticalHeader().setVisible(False)
-        self.horizontalHeader().setVisible(False)
-        self.setSpan(6, 3, 1, 15)  # for decorative line
-        self.setSpan(8, 9, 1, 9)  # for text input widget
-        self._populate_table(preenabled)
+        layout = Qt.QGridLayout(self)
+        self.setLayout(layout)
+        layout.setSpacing(0)
+        layout.setContentsMargins(4, 4, 4, 4)
+        self._setup_table(preenabled, disabled)
         self._setup_text_interface()
-        self._setup_etc()
-        self.resize(550, 300)
-        self._set_clear_all()
+        self.resize(400, 250)
+        self._setup_clear_all()
 
-    def _setup_etc(self):
-        self.setShowGrid(False)
-        self.setEditTriggers(Qt.QAbstractItemView.NoEditTriggers)
-        self.setSelectionMode(Qt.QAbstractItemView.NoSelection)
-        
-    def _set_clear_all(self):
-        self.setSpan(7, 0, 2, 3)  # for clear_all_button
+    def _setup_clear_all(self):
         self.clear_all_button = Qt.QPushButton('Clear all')
-        self.setCellWidget(7, 0, self.clear_all_button)
+        self.layout().addWidget(self.clear_all_button, 7, 0, 2, 3)
         self.clear_all_button.pressed.connect(self.clear_all)
+        self.clear_all_button.setMinimumSize(32, 32)
+        self.clear_all_button.setMaximumSize(512, 512)
 
     def _setup_text_interface(self):
         self.textInterface = Qt.QLineEdit()
-        self.setCellWidget(8, 9, self.textInterface)
-        self.textInterface.returnPressed.connect(self.parseText)
+        self.textInterface.setMinimumSize(16, 16)
+        self.layout().addWidget(self.textInterface, 8, 9, 1, 9)
+        self.textInterface.returnPressed.connect(self.toggle_elements)
+        self.textInterface.textChanged.connect(self.consider_element)
         self.textInterface.setToolTip(
-"""
-text interface:
-You can write abbrevations of elements:
-without any space:
-    AlSiNaK
-with any separators like comma/space:
-    Al;Br K,La
-abbrevations of element groups:
-    HFSE, REE, REE_SEM, LILE, mAjor
-Use '-' (minus) sign to switch all elements after it:
-    -AlCa, K; P -> toggles off Al, Ca, K, P
-    HFSE - Nb -> toggles on HFSE elements, but switches off Nb
-""")
+            "text interface.\n"
+            "Input abbrevations of elements:\n"
+            "    without any space:\n"
+            "        AlSiNaK\n"
+            "    with any separators like comma/space:\n"
+            "        Al;Br K,La\n"
+            "abbrevations of element groups:\n"
+            "    HFSE, REE, REE_SEM, LILE, major\n"
+            "Use '-' (minus) sign to switch all elements after it:\n"
+            "    -AlCa, K; P -> toggles off Al, Ca, K, P\n"
+            "HFSE - Nb -> toggles on HFSE elements, but switches off Nb")
         completer = Qt.QCompleter(list(pt_indexes.keys()) +
-                                     list(geo_groups.keys()))
+                                  list(geo_groups.keys()))
         self.textInterface.setCompleter(completer)
+        self.textInterface.setMaximumSize(512, 1024)
 
-    def parseText(self):
-        ptext = str(self.textInterface.text())
-        if '-' in ptext:
-            first_level = re.findall(r"[-]|[A-Z a-z,;]*", ptext)
-            if first_level.index('-') == 0:
-                positive_text = ''
-                negative_text = first_level[1]
-            else:
-                positive_text = first_level[0]
-                negative_text = first_level[first_level.index('-') + 1]
-        else:
-            positive_text = ptext
-            negative_text = ''
+    def getButton(self, index):
+        """index - tuple"""
+        item = self.layout().itemAtPosition(*index)
+        return item.widget()
+
+    def toggle_elements(self):
+        ptext = self.textInterface.text()
+        positive_text, negative_text = separate_text(ptext)
         # clear text interface:
         self.textInterface.clear()
         # parse what to add first:
-        parsed = []
-        geo_list = re.findall(geo_regex, positive_text)
-        for i in geo_list:
-            parsed.extend(geo_groups[i])
-            positive_text = positive_text.replace(i, '')
-        parsed.extend(re.findall(element_regex, positive_text))
-        toggle_list = set(parsed)
-        self.toggle_on(toggle_list)
-        # then parse what to remove:
-        parsed = []
-        geo_list = re.findall(geo_regex, negative_text)
-        for i in geo_list:
-            parsed.extend(geo_groups[i])
-            negative_text = negative_text.replace(i, '')
-        parsed.extend(re.findall(element_regex, negative_text))
-        toggle_list = set(parsed)
-        self.toggle_off(toggle_list)
+        positive_list = parse_elements(positive_text)
+        self.toggle_on(positive_list)
+        # parse what to remove:
+        negative_list = parse_elements(negative_text)
+        self.toggle_off(negative_list)
+
+    def consider_element(self, text):
+        positive_text = separate_text(text)[0]
+        positive_list = parse_elements(positive_text)
+        self.elementUnconsidered.emit('')
+        for i in positive_list:
+            self.elementConsidered.emit(i)
 
     def toggle_on(self, toggle_list):
         for i in toggle_list:
-            button = self.cellWidget(pt_indexes[i][0],
-                                     pt_indexes[i][1])
+            button = self.getButton(pt_indexes[i])
             if button.isEnabled():
                 button.setChecked(True)
                 button.setStyleSheet("""font: bold;""")
 
     def toggle_off(self, toggle_list):
         for i in toggle_list:
-            button = self.cellWidget(pt_indexes[i][0],
-                                     pt_indexes[i][1])
+            button = self.getButton(pt_indexes[i])
             if button.isEnabled():
                 button.setChecked(False)
                 button.setStyleSheet("""font: normal;""")
-                
+
     def clear_all(self):
         self.blockSignals(True)
         self.toggle_off(geo_groups['ALL'])
         self.blockSignals(False)
         self.allElementsCleared.emit()
 
-    def _populate_table(self, elements=[]):
+    def _setup_table(self, enabled_elements, disabled_elements):
         self.signalMapper = QtCore.QSignalMapper(self)
         self.signalMapper.mapped[Qt.QWidget].connect(self.previewToggler)
         self.signalMapper2 = QtCore.QSignalMapper(self)
         self.signalMapper2.mapped[Qt.QWidget].connect(self.elementToggler)
         self.signalMapper3 = QtCore.QSignalMapper(self)
         self.signalMapper3.mapped[Qt.QWidget].connect(self.emit_right_clicked)
+        self.signalMapper4 = QtCore.QSignalMapper(self)
+        self.signalMapper4.mapped[Qt.QWidget].connect(self.focus_on_toggler)
+        self.signalMapper5 = QtCore.QSignalMapper(self)
+        self.signalMapper5.mapped[Qt.QWidget].connect(self.focus_off_toggler)
         for i in pt_indexes:
             pt_button = HoverableButton(i)
-            pt_button.setStyleSheet("""
-                                    padding-left: 5px;
-                                    padding-right: 3px;
-                                    padding-top: 1px;
-                                    padding-bottom: 1px;""")
-            if i in elements:
+            pt_button.setMinimumSize(16, 16)
+            pt_button.setMaximumSize(512, 512)
+            if i in enabled_elements:
                 pt_button.setChecked(True)
-            self.setCellWidget(pt_indexes[i][0],
-                               pt_indexes[i][1],
-                               pt_button)
+            self.layout().addWidget(pt_button,
+                                    pt_indexes[i][0],
+                                    pt_indexes[i][1])
             pt_button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
             pt_button.hoverChanged.connect(self.signalMapper.map)
             pt_button.toggled.connect(self.signalMapper2.map)
-            pt_button.customContextMenuRequested.connect(self.signalMapper3.map)
+            pt_button.customContextMenuRequested.connect(
+                self.signalMapper3.map)
+            pt_button.gainedFocus.connect(self.signalMapper4.map)
+            pt_button.lostFocus.connect(self.signalMapper5.map)
             self.signalMapper.setMapping(pt_button, pt_button)
             self.signalMapper2.setMapping(pt_button, pt_button)
             self.signalMapper3.setMapping(pt_button, pt_button)
+            self.signalMapper4.setMapping(pt_button, pt_button)
+            self.signalMapper5.setMapping(pt_button, pt_button)
         line = Qt.QFrame()
         line.setFrameShape(Qt.QFrame.HLine)
         line.setFrameShadow(Qt.QFrame.Sunken)
-        self.setCellWidget(6, 3, line)
-        #dissable inert gasses and H, He and Li:
+        line.setSizePolicy(Qt.QSizePolicy.Preferred, Qt.QSizePolicy.Preferred)
+        self.layout().addWidget(line, 6, 3, 1, 15)
+        # dissable inert gasses and H, He and Li:
         for i in disabled_elements:
-            self.cellWidget(pt_indexes[i][0],
-                            pt_indexes[i][1]).setEnabled(False)
+            self.getButton(pt_indexes[i]).setEnabled(False)
         lant_text = Qt.QLabel('Lan')
         act_text = Qt.QLabel('Act')
         lant_text.setAlignment(QtCore.Qt.AlignCenter)
         act_text.setAlignment(QtCore.Qt.AlignCenter)
-        self.setCellWidget(5, 2, lant_text)
-        self.setCellWidget(6, 2, act_text)
+        self.layout().addWidget(lant_text, 5, 2)
+        self.layout().addWidget(act_text, 6, 2)
         lant_text.setEnabled(False)
         act_text.setEnabled(False)
-        self.setMinimumWidth(self.horizontalHeader().length() + 10)
 
     def keyPressEvent(self, event):
         """Jump to text interface at shift key press"""
         if event.key() == QtCore.Qt.Key_Shift:
             self.textInterface.setFocus()
-    
-    #@QtCore.pyqtSlot(QtCore.QObject)  # NOTE decorators are commented out
-    # as pyQt5.7 made regression with using QObject or QWidget in signals
-    # THIS BUG weere not reported to riverbank. as they have mailing list for
-    # commercial users only.
-    def previewToggler(self, button):
-        if button.isEnabled() and self.preview_enabled:
-            if button.hoverState:
-                self.elementHoveredOver.emit(button.text())
-            else:
-                self.elementHoveredOff.emit(button.text())
 
-    #@QtCore.pyqtSlot(QtCore.QObject)
+    # @QtCore.pyqtSlot(QtCore.QObject)  # NOTE decorators are commented out
+    # as pyQt5.7 made regression with using QObject or QWidget in signals
+    # or is it the problem with mapping of signals?
+    def previewToggler(self, button):
+        # if button.isEnabled():
+        if button.hoverState:
+            self.elementConsidered.emit(button.text())
+        else:
+            self.elementUnconsidered.emit(button.text())
+
+    def focus_on_toggler(self, button):
+        """this is for sending same signal as with hovering, but by
+        "Tab" jumping through buttons"""
+        self.elementConsidered.emit(button.text())
+
+    def focus_off_toggler(self, button):
+        """this is for sending same signal as with hovering, but by
+        "Tab" jumping through buttons"""
+        self.elementUnconsidered.emit(button.text())
+
+    # @QtCore.pyqtSlot(QtCore.QObject)
     def elementToggler(self, button):
         if button.isChecked():
-            self.enableElement.emit(button.text())
+            self.elementChecked.emit(button.text())
             if button.hoverState:
                 button.setGeometry(button.orig_size)
                 button.setStyleSheet("""font: bold;""")
         else:
-            self.disableElement.emit(button.text())
+            self.elementUnchecked.emit(button.text())
             button.setStyleSheet("""font: normal;""")
-            
-    #@QtCore.pyqtSlot(QtCore.QObject)
+
+    # @QtCore.pyqtSlot(QtCore.QObject)
     def emit_right_clicked(self,  button):
-        self.someButtonRightClicked.emit(button.text())
-        
+        self.elementRightClicked.emit(button.text())
+
     def toggle_buttons_wo_trigger(self, elements):
         self.signalMapper2.blockSignals(True)
         for i in elements:
-            self.cellWidget(pt_indexes[i][0],
-                            pt_indexes[i][1]).toggle()
+            self.layout().itemAtPosition(pt_indexes[i][0],
+                                         pt_indexes[i][1]).widget().toggle()
         self.signalMapper2.blockSignals(False)
