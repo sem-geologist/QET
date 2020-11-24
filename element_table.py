@@ -124,6 +124,7 @@ class HoverableButton(Qt.QPushButton):
     hoverChanged = QtCore.pyqtSignal()
     gainedFocus = QtCore.pyqtSignal()
     lostFocus = QtCore.pyqtSignal()
+    rightClicked = QtCore.pyqtSignal()
 
     def __init__(self, name, partly_disabled=True):
         Qt.QAbstractButton.__init__(self)
@@ -133,6 +134,7 @@ class HoverableButton(Qt.QPushButton):
         self.setCheckable(True)
         self.hoverState = False
         self.orig_size = self.geometry()
+        self.installEventFilter(self)
 
     def focusInEvent(self, event):
         self.gainedFocus.emit()
@@ -159,6 +161,12 @@ class HoverableButton(Qt.QPushButton):
             self.hoverState = False
             self.hoverChanged.emit()
             self.setGeometry(self.orig_size)
+
+    def eventFilter(self, QObject, event):
+        if event.type() == QtCore.QEvent.MouseButtonPress:
+            if event.button() == QtCore.Qt.RightButton:
+                self.rightClicked.emit()
+        return False
 
 
 class ElementTableGUI(Qt.QWidget):
@@ -314,10 +322,10 @@ class ElementTableGUI(Qt.QWidget):
             self.layout().addWidget(pt_button,
                                     pt_indexes[i][0],
                                     pt_indexes[i][1])
-            pt_button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            # pt_button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
             pt_button.hoverChanged.connect(self.signalMapper.map)
             pt_button.toggled.connect(self.signalMapper2.map)
-            pt_button.customContextMenuRequested.connect(
+            pt_button.rightClicked.connect(
                 self.signalMapper3.map)
             pt_button.gainedFocus.connect(self.signalMapper4.map)
             pt_button.lostFocus.connect(self.signalMapper5.map)
