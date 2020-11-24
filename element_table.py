@@ -20,6 +20,7 @@
 from PyQt5 import QtCore, Qt
 import re
 
+nowa_zmienna = 'testing'
 # the periodic table possitions in gui:
 # row, column:
 pt_indexes = {'H': (0, 0), 'He': (0, 17), 'Li': (1, 0),
