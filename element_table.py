@@ -18,7 +18,8 @@
 #
 
 from PyQt5 import QtCore, Qt
-import re
+import re, json
+import os
 
 # the periodic table possitions in gui:
 # row, column:
@@ -57,23 +58,7 @@ pt_indexes = {'H': (0, 0), 'He': (0, 17), 'Li': (1, 0),
 
 # element groups:
 # TODO: this could go to json and configs
-geo_groups = {'LITHOPHILE': ['Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca'],
-              'SIDEROPHILE': ['Fe', 'Co', 'Ni', 'Pt', 'Re', 'Os'],
-              'CHALCOPHILE': ['Cu', 'Ag', 'Zn', 'Pb', 'S'],
-              'LILE': ['K', 'Rb', 'Cs', 'Ba'],
-              'HFSE': ['Zr', 'Nb', 'Th', 'U'],
-              'MAJOR': ['O', 'Na', 'K', 'Si', 'Al', 'Ti', 'Mg',
-                        'Ca', 'Fe'],
-              'HALOGENS': ['F', 'Cl', 'Br'],
-              'REE': ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm',
-                      'Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er',
-                      'Tm', 'Yb', 'Lu'],
-              'LREE': ['La', 'Ce', 'Pr', 'Nd', 'Pm', 'Sm'],
-              'HREE': ['Eu', 'Gd', 'Tb', 'Dy', 'Ho', 'Er',
-                       'Tm', 'Yb', 'Lu'],
-              'COMMON': ['O', 'Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca',
-                         'Cr', 'Mn', 'Fe'],
-              'ALL': ['He', 'Se', 'Sb', 'Pt', 'Ar', 'Ba', 'As', 'Pa',
+geo_groups = {'ALL': ['He', 'Se', 'Sb', 'Pt', 'Ar', 'Ba', 'As', 'Pa',
                       'Au', 'Dy', 'Bi', 'U', 'Ne', 'Re', 'Al', 'Sc',
                       'Mn', 'Ra', 'In', 'O', 'P', 'Mo', 'Tb', 'V',
                       'Na', 'Ta', 'Hg', 'Ca', 'Hf', 'Ac', 'Eu', 'Nd',
@@ -86,10 +71,16 @@ geo_groups = {'LITHOPHILE': ['Na', 'K', 'Si', 'Al', 'Ti', 'Mg', 'Ca'],
                       'Gd', 'Os', 'Fe', 'Pb', 'Tm', 'Cd', 'N', 'Tc',
                       'Cs', 'Pr', 'Th', 'Rb', 'Fr', 'Rh']}
 
+gg_path = os.path.join(os.path.dirname(__file__), 'geo_groups.json')
+with open(gg_path) as fn:
+    gg = json.load(fn)
+
+geo_groups.update(gg)
+
 element_regex = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
         r"H[eofga]?|A[lrsgutcm]|B[erai]?|Dy|E[ur]|F[er]?|G[aed]|" +\
         r"I[nr]?|Kr?|L[iau]|M[gno]|R[buhena]|T[icebmalh]|" +\
-        r"U|V|W|Xe|Yb?|Z[nr]|P[drmtboau]?"
+        r"U|V|W|Xe|Yb?|Z[nr]|P[dr⚙mtboau]?"
 
 geo_regex = '(?:%s)' % '|'.join(geo_groups.keys())
 
@@ -120,18 +111,36 @@ def parse_elements(text):
         return set(parsed)
 
 
-class HoverableButton(Qt.QPushButton):
+class HoverableButton(Qt.QToolButton):
+    """A Customised PushButton, which emit
+    additional signals when hovered over/off, right clicked
+    or focuse changed with Tabulator
+    ----------------
+    initialisation arguments:
+
+    name -- text which will be shown on button
+    party_disabled = True (default) -- controls behaviour,
+       when set to True, the button when disabled, still
+       emit custom signals and if fancy is enabled, react to
+       mouse over events.
+    disable_fancy = False --if set to True, then does not do
+    the graphic geometric changes when hovered over/off.
+    """
     hoverChanged = QtCore.pyqtSignal()
     gainedFocus = QtCore.pyqtSignal()
     lostFocus = QtCore.pyqtSignal()
     rightClicked = QtCore.pyqtSignal()
 
-    def __init__(self, name, partly_disabled=True):
+    def __init__(self, name, partly_disabled=True,
+                 disable_fancy=False):
         Qt.QAbstractButton.__init__(self)
         self.partly_disabled = partly_disabled
+        self.fancy = not disable_fancy
         self.setMouseTracking(1)
         self.setText(name)
         self.setCheckable(True)
+        if not self.fancy:
+            self.setAutoRaise(True)
         self.hoverState = False
         self.orig_size = self.geometry()
         self.installEventFilter(self)
@@ -145,9 +154,12 @@ class HoverableButton(Qt.QPushButton):
         super().focusOutEvent(event)
 
     def enterEvent(self, event):
+        # signaling
         if self.isEnabled() or self.partly_disabled:
             self.hoverState = True
             self.hoverChanged.emit()
+        # graphics
+        if self.fancy and (self.isEnabled() or self.partly_disabled):
             self.orig_size = self.geometry()
             # some fancy graphic effects (inspired by KDE kalzium):
             self.setGeometry(self.orig_size.x() - self.orig_size.width() / 5,
@@ -160,6 +172,7 @@ class HoverableButton(Qt.QPushButton):
         if self.isEnabled() or self.partly_disabled:
             self.hoverState = False
             self.hoverChanged.emit()
+        if self.fancy and (self.isEnabled() or self.partly_disabled):
             self.setGeometry(self.orig_size)
 
     def eventFilter(self, QObject, event):
@@ -178,13 +191,19 @@ class ElementTableGUI(Qt.QWidget):
     for which buttons is pre-toggled:
     -----------
     args:
-    preenabled -- python list with elements (abbrevations), the
-    buttons which should be initially pushed.
-    disabled = python list with elements (abbrevations) for buttons
-    which should be disabled.
+    prechecked -- python list with elements (abbrevations), the
+        buttons which should be initially pushed.
+    state_list = python list -- list of elements (abbrevations) for buttons
+        which should be disabled (by default) or enabled (if state_list_enables
+        is True.
+    state_list_enables = False (default) -- set interpretation of state_list
+    silent_disabled = False (default) -- controls the behaviour of disabled
+        element buttons if True, then disabled buttons do not emit any signal
+    disable_fancy = False (default) -- controls if do button geometry changes
+        with hover over/off events
     -----------
 
-    additionally to native QtGui.QTableWidget provides
+    additionally to native QtGui.QWidget provides
     such signals:
 
     elementConsidered -- signal which emits element abbrevation
@@ -196,7 +215,6 @@ class ElementTableGUI(Qt.QWidget):
         changes to checked possition.
     elementUnchecked -- emits the element abbrevation when button
         changes to unchecked possition.
-
     elementRightClicked -- emits the element abbrevation when
         button gets right clicked.
 
@@ -216,14 +234,21 @@ class ElementTableGUI(Qt.QWidget):
     allElementsCleared = QtCore.pyqtSignal()
 
     def __init__(self, parent=None,
-                 preenabled=[], disabled=[]):
+                 prechecked=[], state_list=[],
+                 state_list_enables=False, silent_disabled=False,
+                 disable_fancy=False):
         super().__init__()
+        if type(state_list) == str:
+            state_list = parse_elements(state_list)
+        print(state_list)
         self.setWindowTitle('Element Table')
         layout = Qt.QGridLayout(self)
         self.setLayout(layout)
         layout.setSpacing(0)
         layout.setContentsMargins(4, 4, 4, 4)
-        self._setup_table(preenabled, disabled)
+        partly_disabled = not silent_disabled
+        self._setup_table(prechecked, state_list, state_list_enables,
+                          partly_disabled, disable_fancy)
         self._setup_text_interface()
         self.resize(400, 250)
         self._setup_clear_all()
@@ -248,19 +273,31 @@ class ElementTableGUI(Qt.QWidget):
             "        AlSiNaK\n"
             "    with any separators like comma/space:\n"
             "        Al;Br K,La\n"
-            "abbrevations of element groups:\n"
-            "    HFSE, REE, REE_SEM, LILE, major\n"
-            "Use '-' (minus) sign to switch all elements after it:\n"
+            "abbrevations of element groups (in all caps):\n"
+            "    HFSE, REE, REE_SEM, LILE, MAJOR\n"
+            "Use '-' (minus) sign to deselect elements following it:\n"
             "    -AlCa, K; P -> toggles off Al, Ca, K, P\n"
             "HFSE - Nb -> toggles on HFSE elements, but switches off Nb")
         completer = Qt.QCompleter(list(pt_indexes.keys()) +
                                   list(geo_groups.keys()))
         self.textInterface.setCompleter(completer)
         self.textInterface.setMaximumSize(512, 1024)
+        
+    def udpate_completer(self):
+        completer = Qt.QCompleter(list(pt_indexes.keys()) +
+                                  list(geo_groups.keys()))
+        self.textInterface.setCompleter(completer)
 
     def getButton(self, index):
-        """index - tuple"""
+        """helper function to get button by position
+        index - tuple (row, column)"""
         item = self.layout().itemAtPosition(*index)
+        return item.widget()
+
+    def getButton_by_name(self, name):
+        """helper function to get button by name of
+        the element"""
+        item = self.layout().itemAtPosition(*pt_indexes[name])
         return item.widget()
 
     def toggle_elements(self):
@@ -302,7 +339,9 @@ class ElementTableGUI(Qt.QWidget):
         self.blockSignals(False)
         self.allElementsCleared.emit()
 
-    def _setup_table(self, enabled_elements, disabled_elements):
+    def _setup_table(self, prechecked_elements, state_list,
+                     state_list_enables, partly_disabled,
+                     disable_fancy):
         self.signalMapper = QtCore.QSignalMapper(self)
         self.signalMapper.mapped[Qt.QWidget].connect(self.previewToggler)
         self.signalMapper2 = QtCore.QSignalMapper(self)
@@ -314,10 +353,11 @@ class ElementTableGUI(Qt.QWidget):
         self.signalMapper5 = QtCore.QSignalMapper(self)
         self.signalMapper5.mapped[Qt.QWidget].connect(self.focus_off_toggler)
         for i in pt_indexes:
-            pt_button = HoverableButton(i)
+            pt_button = HoverableButton(i, partly_disabled=partly_disabled,
+                                        disable_fancy=disable_fancy)
             pt_button.setMinimumSize(16, 16)
             pt_button.setMaximumSize(512, 512)
-            if i in enabled_elements:
+            if i in prechecked_elements:
                 pt_button.setChecked(True)
             self.layout().addWidget(pt_button,
                                     pt_indexes[i][0],
@@ -325,8 +365,7 @@ class ElementTableGUI(Qt.QWidget):
             # pt_button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
             pt_button.hoverChanged.connect(self.signalMapper.map)
             pt_button.toggled.connect(self.signalMapper2.map)
-            pt_button.rightClicked.connect(
-                self.signalMapper3.map)
+            pt_button.rightClicked.connect(self.signalMapper3.map)
             pt_button.gainedFocus.connect(self.signalMapper4.map)
             pt_button.lostFocus.connect(self.signalMapper5.map)
             self.signalMapper.setMapping(pt_button, pt_button)
@@ -339,7 +378,11 @@ class ElementTableGUI(Qt.QWidget):
         line.setFrameShadow(Qt.QFrame.Sunken)
         line.setSizePolicy(Qt.QSizePolicy.Preferred, Qt.QSizePolicy.Preferred)
         self.layout().addWidget(line, 6, 3, 1, 15)
-        # dissable inert gasses and H, He and Li:
+        # dissable elements/buttons for provided list:
+        if state_list_enables:
+            disabled_elements = set(pt_indexes).difference(state_list)
+        else:
+            disabled_elements = state_list
         for i in disabled_elements:
             self.getButton(pt_indexes[i]).setEnabled(False)
         lant_text = Qt.QLabel('Lan')
@@ -350,6 +393,14 @@ class ElementTableGUI(Qt.QWidget):
         self.layout().addWidget(act_text, 6, 2)
         lant_text.setEnabled(False)
         act_text.setEnabled(False)
+
+    def update_state(self, element, enable=True):
+        self.signalMapper2.blockSignals(True)
+        button = self.getButton_by_name(element)
+        if not enable and button.isChecked():
+            button.setChecked(False)
+        button.setEnabled(enable)
+        self.signalMapper2.blockSignals(False)
 
     def keyPressEvent(self, event):
         """Jump to text interface at shift key press"""
