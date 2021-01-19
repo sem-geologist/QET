@@ -69,19 +69,8 @@ pt_indexes = {'H': (0, 0), 'He': (0, 17), 'Li': (1, 0),
               'Pu': (8, 8)}
 
 # element groups:
-geo_groups = {'ALL': ['He', 'Se', 'Sb', 'Pt', 'Ar', 'Ba', 'As', 'Pa',
-                      'Au', 'Dy', 'Bi', 'U', 'Ne', 'Re', 'Al', 'Sc',
-                      'Mn', 'Ra', 'In', 'O', 'P', 'Mo', 'Tb', 'V',
-                      'Na', 'Ta', 'Hg', 'Ca', 'Hf', 'Ac', 'Eu', 'Nd',
-                      'Br', 'Ag', 'Kr', 'W', 'K', 'S', 'Ga', 'At',
-                      'Co', 'Sr', 'C', 'Ce', 'Be', 'I', 'Ni', 'Er',
-                      'Cu', 'Cr', 'Ho', 'B', 'Li', 'Nb', 'Ru', 'Si',
-                      'H', 'Rn', 'Zn', 'Yb', 'Pm', 'Te', 'Ti', 'F',
-                      'Pu', 'Lu', 'La', 'Ge', 'Ir', 'Mg', 'Po', 'Pd',
-                      'Y', 'Sn', 'Sm', 'Np', 'Zr', 'Cl', 'Tl', 'Xe',
-                      'Gd', 'Os', 'Fe', 'Pb', 'Tm', 'Cd', 'N', 'Tc',
-                      'Cs', 'Pr', 'Th', 'Rb', 'Fr', 'Rh']}
-
+geo_groups = {'ALL': list(pt_indexes.keys())}
+# geo groups can be added by modifying geo_groups.json file
 gg_path = os.path.join(os.path.dirname(__file__), 'geo_groups.json')
 with open(gg_path) as fn:
     gg = json.load(fn)
@@ -91,13 +80,13 @@ geo_groups.update(gg)
 ELEMENT_REGEX = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
         r"H[eofga]?|A[lrsgutcm]|B[erai]?|Dy|E[ur]|F[er]?|G[aed]|" +\
         r"I[nr]?|Kr?|L[iau]|M[gno]|R[buhena]|T[icebmalh]|" +\
-        r"U|V|W|Xe|Yb?|Z[nr]|P[dr⚙mtboau]?"
+        r"U|V|W|Xe|Yb?|Z[nr]|P[drmtboau]?"
 
 GEO_REGEX = '(?:%s)' % '|'.join(geo_groups.keys())
 
 
 def separate_text(ptext):
-    "Sparate text into positive and negative (with '-' sign)"
+    """Separate text into positive and negative (prefixed with minus '-')"""
     if '-' in ptext:
         first_level = re.findall(r"[-]|[A-Z a-z,;]*", ptext)
         if first_level.index('-') == 0:
@@ -159,6 +148,12 @@ class HoverableButton(QToolButton):
         self.hover_state = False
         self.orig_size = self.geometry()
         self.installEventFilter(self)
+
+    def change_mode(self, mode):
+        if mode == "single":
+            self.setCheckable(False)
+        elif mode == "multi":
+            self.setCheckable(True)
 
     def focusInEvent(self, event):
         self.gainedFocus.emit()
@@ -262,7 +257,7 @@ class ElementTableGUI(QWidget):
             state_list = parse_elements(state_list)
         if (len(prechecked) > 0) and buttons_auto_depress:
             warnings.warn(
-                "element table is initialised with oposite"
+                "element table is initialised with opposite"
                 " arguements - seting buttons to auto depress rules out"
                 " using prechecked element list. The list is ignored")
             prechecked = []
@@ -275,8 +270,12 @@ class ElementTableGUI(QWidget):
         self._setup_table(prechecked, state_list, state_list_enables,
                           partly_disabled, disable_fancy, buttons_auto_depress)
         self._setup_text_interface()
-        self.resize(400, 250)
         self._setup_clear_all()
+        if not buttons_auto_depress:
+            self.set_table_mode('inclusive')  # default
+        else:
+            self.set_table_mode('exclusive')
+        self.resize(400, 250)
 
     def _setup_clear_all(self):
         self.clear_all_button = QPushButton('Clear all')
@@ -291,27 +290,42 @@ class ElementTableGUI(QWidget):
         self.layout().addWidget(self.textInterface, 8, 9, 1, 9)
         self.textInterface.returnPressed.connect(self.toggle_elements)
         self.textInterface.textChanged.connect(self.consider_element)
-        self.textInterface.setToolTip(
-            "text interface.\n"
-            "Input abbrevations of elements:\n"
-            "    without any space:\n"
-            "        AlSiNaK\n"
-            "    with any separators like comma/space:\n"
-            "        Al;Br K,La\n"
-            "abbrevations of element groups (in all caps):\n"
-            "    HFSE, REE, REE_SEM, LILE, MAJOR\n"
-            "Use '-' (minus) sign to deselect elements following it:\n"
-            "    -AlCa, K; P -> toggles off Al, Ca, K, P\n"
-            "HFSE - Nb -> toggles on HFSE elements, but switches off Nb")
-        completer = QCompleter(list(pt_indexes.keys()) +
-                               list(geo_groups.keys()))
-        self.textInterface.setCompleter(completer)
         self.textInterface.setMaximumSize(512, 1024)
 
-    def udpate_completer(self):
+    def set_extended_completer(self):
         completer = QCompleter(list(pt_indexes.keys()) +
                                list(geo_groups.keys()))
         self.textInterface.setCompleter(completer)
+
+    def set_simple_completer(self):
+        completer = QCompleter(list(pt_indexes.keys()))
+        self.textInterface.setCompleter(completer)
+
+    def set_table_mode(self, mode):
+        if mode == 'multi':
+            self.set_extended_completer()
+            self.textInterface.setToolTip(
+                "text interface.\n"
+                "Input abbrevations of elements:\n"
+                "    without any space:\n"
+                "        AlSiNaK\n"
+                "    with any separators like comma/space:\n"
+                "        Al;Br K,La\n"
+                "abbrevations of element groups (in all caps):\n"
+                "    HFSE, REE, REE_SEM, LILE, MAJOR\n"
+                "Use '-' (minus) sign to disable elements:\n"
+                "    -AlCa, K; P -> toggles off Al, Ca, K, P\n"
+                "HFSE - Nb -> toggles on HFSE elements, but switches off Nb")
+            self.clear_all_button.setEnabled(True)
+            self.textInterface.setInputMask("")
+        elif mode == 'single':
+            self.set_simple_completer()
+            self.textInterface.setToolTip(
+                "Enter a single element abbreviation")
+            self.clear_all_button.setEnabled(False)
+            self.textInterface.setInputMask(">A<a")
+        for i in geo_groups['ALL']:
+                self.getButton_by_name(i).change_mode(mode)
 
     def getButton(self, index):
         """helper function to get button by position
@@ -349,16 +363,17 @@ class ElementTableGUI(QWidget):
             button = self.getButton(pt_indexes[i])
             if button.isEnabled():
                 button.setChecked(True)
-                button.setStyleSheet("""font: bold;""")
 
     def toggle_off(self, toggle_list):
         for i in toggle_list:
             button = self.getButton(pt_indexes[i])
             if button.isEnabled():
                 button.setChecked(False)
-                button.setStyleSheet("""font: normal;""")
 
     def clear_all(self):
+        """uncheck all buttons, and send single signal instead of
+           many per button, which allows to do related action in
+           more snappy maner."""
         self.blockSignals(True)
         self.toggle_off(geo_groups['ALL'])
         self.blockSignals(False)
@@ -426,6 +441,10 @@ class ElementTableGUI(QWidget):
         act_text.setEnabled(False)
 
     def update_state(self, element, enable=True):
+        """update state of button for given element
+        (enable, disable); this method is intended to
+        be used when model containing element list is
+        updated (new element added or removed)"""
         self.signalMapper2.blockSignals(True)
         button = self.getButton_by_name(element)
         if not enable and button.isChecked():
@@ -462,12 +481,10 @@ class ElementTableGUI(QWidget):
     def elementToggler(self, button):
         if button.isChecked():
             self.elementChecked.emit(button.text())
-            if button.hover_state:
+            if button.hover_state and button.fancy:
                 button.setGeometry(button.orig_size)
-                button.setStyleSheet("""font: bold;""")
         else:
             self.elementUnchecked.emit(button.text())
-            button.setStyleSheet("""font: normal;""")
 
     # @QtCore.pyqtSlot(QtCore.QObject)
     def emit_right_clicked(self,  button):
@@ -476,9 +493,14 @@ class ElementTableGUI(QWidget):
     def emit_triggered(self, button):
         self.elementTriggered.emit(button.text())
 
-    def toggle_buttons_wo_trigger(self, elements):
+    def switch_button_wo_trigger(self, elements, press=True):
+        """This method is intended to be connected with list model signal;
+        it blocks signal so that there would be no loop of triggering
+        back and forth between button and list model if state of checkbox
+        in list is bined with state of button."""
         self.signalMapper2.blockSignals(True)
-        for i in elements:
-            self.layout().itemAtPosition(pt_indexes[i][0],
-                                         pt_indexes[i][1]).widget().toggle()
+        if press:
+            self.toggle_on(elements)
+        else:
+            self.toggle_off(elements)
         self.signalMapper2.blockSignals(False)
