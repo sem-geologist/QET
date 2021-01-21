@@ -85,14 +85,14 @@ for i in names_files:
     with open(i) as fn:
         names_abbrv.update(json.load(fn))
 
-ELEMENT_REGEX = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
-        r"H[eofga]?|A[lrsgutcm]|B[erai]?|Dy|E[ur]|F[er]?|G[aed]|" +\
+ELEMENT_REGEX = r"(C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
+        r"H[eofga]?|A[lrsgutc]|B[erai]?|Dy|E[ur]|F[er]?|G[aed]|" +\
         r"I[nr]?|Kr?|L[iau]|M[gno]|R[buhena]|T[icebmalh]|" +\
-        r"U|V|W|Xe|Yb?|Z[nr]|P[drmtboau]?"
+        r"U|V|W|Xe|Yb?|Z[nr]|P[drmtboau])(?![a-z])"
 
-GEO_REGEX = '(?:%s)' % '|'.join(geo_groups.keys())
+GEO_REGEX = r'(?:%s)' % '|'.join(geo_groups.keys())
 
-NAMES_REGEX = '(?:%s)' % '|'.join(names_abbrv.keys())
+NAMES_REGEX = r'(?<![a-zA-Z])({})(?![a-z])'.format('|'.join(names_abbrv.keys()))
 
 
 def separate_text(ptext):
@@ -120,11 +120,11 @@ def parse_elements(text):
         # to prevent situation where 'HFSE' would return ['H', 'F', 'S']
         # we replace parsed text with spaces. It is expensive
         # hopefully some alternative could be found
-        text = text.replace(i, ' ')
+        text = text.replace(i, '')
     names_list = re.findall(NAMES_REGEX, text, re.I)
     for i in names_list:
         parsed.append(names_abbrv[i.lower()])
-        text = text.replace(i, ' ')  # the same trick as with geo list
+        text = text.replace(i, '')  # the same trick as with geo list
     parsed.extend(re.findall(ELEMENT_REGEX, text))
     return set(parsed)
 
