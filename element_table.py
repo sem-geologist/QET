@@ -32,6 +32,7 @@ from PyQt5.QtWidgets import (QToolButton,
                              QLineEdit,
                              QFrame,
                              QSizePolicy)
+from glob import glob
 
 # the periodic table possitions in gui:
 # row, column:
@@ -73,9 +74,16 @@ geo_groups = {'ALL': list(pt_indexes.keys())}
 # geo groups can be added by modifying geo_groups.json file
 gg_path = os.path.join(os.path.dirname(__file__), 'geo_groups.json')
 with open(gg_path) as fn:
-    gg = json.load(fn)
+    gg_json = json.load(fn)
 
-geo_groups.update(gg)
+geo_groups.update(gg_json)
+
+names_abbrv = {}
+names_path = os.path.join(os.path.dirname(__file__), 'names_abbrv_')
+names_files = glob(names_path + '*.json')
+for i in names_files:
+    with open(i) as fn:
+        names_abbrv.update(json.load(fn))
 
 ELEMENT_REGEX = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
         r"H[eofga]?|A[lrsgutcm]|B[erai]?|Dy|E[ur]|F[er]?|G[aed]|" +\
@@ -83,6 +91,8 @@ ELEMENT_REGEX = r"C[laroudse]?|Os?|N[eaibdps]?|S[icernbm]?|" +\
         r"U|V|W|Xe|Yb?|Z[nr]|P[drmtboau]?"
 
 GEO_REGEX = '(?:%s)' % '|'.join(geo_groups.keys())
+
+NAMES_REGEX = '(?:%s)' % '|'.join(names_abbrv.keys())
 
 
 def separate_text(ptext):
@@ -107,7 +117,14 @@ def parse_elements(text):
     geo_list = re.findall(GEO_REGEX, text)
     for i in geo_list:
         parsed.extend(geo_groups[i])
-        text = text.replace(i, '')
+        # to prevent situation where 'HFSE' would return ['H', 'F', 'S']
+        # we replace parsed text with spaces. It is expensive
+        # hopefully some alternative could be found
+        text = text.replace(i, ' ')
+    names_list = re.findall(NAMES_REGEX, text, re.I)
+    for i in names_list:
+        parsed.append(names_abbrv[i.lower()])
+        text = text.replace(i, ' ')  # the same trick as with geo list
     parsed.extend(re.findall(ELEMENT_REGEX, text))
     return set(parsed)
 
@@ -272,9 +289,9 @@ class ElementTableGUI(QWidget):
         self._setup_text_interface()
         self._setup_clear_all()
         if not buttons_auto_depress:
-            self.set_table_mode('inclusive')  # default
+            self.set_table_mode('multi')  # default
         else:
-            self.set_table_mode('exclusive')
+            self.set_table_mode('single')
         self.resize(400, 250)
 
     def _setup_clear_all(self):
@@ -294,7 +311,8 @@ class ElementTableGUI(QWidget):
 
     def set_extended_completer(self):
         completer = QCompleter(list(pt_indexes.keys()) +
-                               list(geo_groups.keys()))
+                               list(geo_groups.keys()) +
+                               list(names_abbrv.keys()))
         self.textInterface.setCompleter(completer)
 
     def set_simple_completer(self):
@@ -303,6 +321,7 @@ class ElementTableGUI(QWidget):
 
     def set_table_mode(self, mode):
         if mode == 'multi':
+            self.textInterface.setEnabled(True)
             self.set_extended_completer()
             self.textInterface.setToolTip(
                 "text interface.\n"
@@ -319,11 +338,12 @@ class ElementTableGUI(QWidget):
             self.clear_all_button.setEnabled(True)
             self.textInterface.setInputMask("")
         elif mode == 'single':
-            self.set_simple_completer()
-            self.textInterface.setToolTip(
-                "Enter a single element abbreviation")
+            self.textInterface.setEnabled(False)
+            # self.set_simple_completer()
+            # self.textInterface.setToolTip(
+            #    "Enter a single element abbreviation")
             self.clear_all_button.setEnabled(False)
-            self.textInterface.setInputMask(">A<a")
+            # self.textInterface.setInputMask(">A<a")
         for i in geo_groups['ALL']:
                 self.getButton_by_name(i).change_mode(mode)
 
